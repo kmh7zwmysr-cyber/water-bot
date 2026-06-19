@@ -9,21 +9,24 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher(bot)
 
 user_data = {}
-order_status = {}
+
+# ---------------- КЛАВИАТУРЫ ----------------
 
 menu = ReplyKeyboardMarkup(resize_keyboard=True)
 menu.add(KeyboardButton("💧 Заказать воду"))
-menu.add(KeyboardButton("📦 Статус заказа"))
 
 sizes = ReplyKeyboardMarkup(resize_keyboard=True)
 sizes.row("0.5 л", "1 л")
 sizes.row("5 л", "19 л")
 
 after_order = ReplyKeyboardMarkup(resize_keyboard=True)
-after_order.add("🔄 Новый заказ")
-after_order.add("❌ Отменить заказ")
-after_order.add("📦 Статус заказа")
+after_order.add(
+    KeyboardButton("🔄 Новый заказ"),
+    KeyboardButton("❌ Отменить заказ")
+)
+after_order.add(KeyboardButton("📦 Статус заказа"))
 
+# ---------------- START ----------------
 
 @dp.message_handler(commands=["start"])
 async def start(message: types.Message):
@@ -32,94 +35,43 @@ async def start(message: types.Message):
         reply_markup=menu
     )
 
+# ---------------- НАЧАТЬ ЗАКАЗ ----------------
 
 @dp.message_handler(lambda m: m.text == "💧 Заказать воду")
-async def order_start(message: types.Message):
+async def order(message: types.Message):
     user_data[message.from_user.id] = {}
-    await message.answer(
-        "Выберите объём воды:",
-        reply_markup=sizes
-    )
+    await message.answer("Выберите объём:", reply_markup=sizes)
 
+# ---------------- ВЫБОР ОБЪЁМА ----------------
 
 @dp.message_handler(lambda m: m.text in ["0.5 л", "1 л", "5 л", "19 л"])
-async def get_size(message: types.Message):
+async def size(message: types.Message):
     uid = message.from_user.id
-
     if uid not in user_data:
         return
 
     user_data[uid]["size"] = message.text
-    await message.answer("Введите количество бутылок:")
+    await message.answer("Сколько бутылок нужно?")
 
+# ---------------- КОЛИЧЕСТВО ----------------
 
 @dp.message_handler(lambda m: m.text.isdigit())
-async def get_count(message: types.Message):
+async def count(message: types.Message):
     uid = message.from_user.id
-
     if uid not in user_data:
         return
 
-    if "count" not in user_data[uid]:
-        user_data[uid]["count"] = message.text
+    data = user_data[uid]
+
+    if "count" not in data:
+        data["count"] = message.text
         await message.answer("Введите адрес доставки:")
         return
 
-
-@dp.message_handler(commands=["done"])
-async def complete_order(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-
-    try:
-        client_id = int(message.get_args())
-
-        order_status[client_id] = "✅ Доставлен"
-
-        await bot.send_message(
-            client_id,
-            "🎉 Ваш заказ успешно доставлен!"
-        )
-
-        await message.answer("Заказ закрыт.")
-
-    except:
-        await message.answer("Пример: /done 123456789")
-
-
-@dp.message_handler(lambda m: m.text == "📦 Статус заказа")
-async def status(message: types.Message):
-    st = order_status.get(
-        message.from_user.id,
-        "❌ Активных заказов нет"
-    )
-
-    await message.answer(f"Статус заказа:\n{st}")
-
-
-@dp.message_handler(lambda m: m.text == "🔄 Новый заказ")
-async def new_order(message: types.Message):
-    user_data[message.from_user.id] = {}
-
-    await message.answer(
-        "Выберите объём воды:",
-        reply_markup=sizes
-    )
-
-
-@dp.message_handler(lambda m: m.text == "❌ Отменить заказ")
-async def cancel_order(message: types.Message):
-    user_data.pop(message.from_user.id, None)
-    order_status.pop(message.from_user.id, None)
-
-    await message.answer(
-        "❌ Заказ отменён",
-        reply_markup=menu
-    )
-
+# ---------------- АДРЕС + ТЕЛЕФОН ----------------
 
 @dp.message_handler()
-async def process(message: types.Message):
+async def finish(message: types.Message):
     uid = message.from_user.id
 
     if uid not in user_data:
@@ -135,29 +87,52 @@ async def process(message: types.Message):
     if "phone" not in data:
         data["phone"] = message.text
 
-        order_status[uid] = "📦 Принят"
-
         text = f"""
 🧾 НОВЫЙ ЗАКАЗ
 
 💧 Объём: {data['size']}
-📦 Количество: {data['count']}
+📦 Кол-во: {data['count']}
 🏠 Адрес: {data['address']}
 📞 Телефон: {data['phone']}
 
-👤 @{message.from_user.username}
+👤 @{message.from_user.username or "нет username"}
 🆔 {uid}
-
-Статус: ПРИНЯТ
+📍 Ростов-на-Дону
 """
 
         await bot.send_message(ADMIN_ID, text)
 
         await message.answer(
-            "✅ Заказ принят!\n\nОператор скоро свяжется с вами.",
+            "✅ Заказ принят!\nВыберите действие:",
             reply_markup=after_order
         )
 
+        user_data.pop(uid, None)
+
+# ---------------- НОВЫЙ ЗАКАЗ ----------------
+
+@dp.message_handler(lambda m: m.text == "🔄 Новый заказ")
+async def new_order(message: types.Message):
+    user_data[message.from_user.id] = {}
+    await message.answer("Выберите объём:", reply_markup=sizes)
+
+# ---------------- ОТМЕНА ----------------
+
+@dp.message_handler(lambda m: m.text == "❌ Отменить заказ")
+async def cancel(message: types.Message):
+    user_data.pop(message.from_user.id, None)
+    await message.answer("❌ Заказ отменён", reply_markup=menu)
+
+# ---------------- СТАТУС ----------------
+
+@dp.message_handler(lambda m: m.text == "📦 Статус заказа")
+async def status(message: types.Message):
+    if message.from_user.id in user_data:
+        await message.answer("📦 У вас есть незавершённый заказ")
+    else:
+        await message.answer("❌ Активных заказов нет")
+
+# ---------------- RUN ----------------
 
 if __name__ == "__main__":
     executor.start_polling(dp, skip_updates=True)
